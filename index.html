@@ -1150,8 +1150,7 @@ async function fetchChessCom(url, username) {
         await sleep(250);
         continue;
     }
-  }
-  throw new Error(`Game #${gameId} not found in the last 8 months of ${username}'s archive. Try pasting the PGN directly.`);
+  throw new Error(`Game #${gameId} not found. If you JUST finished it, Chess.com servers take up to 3 minutes to update. Please wait, or click "Paste PGN" and paste the game text directly.`);
 }
 
 // ─────────────────────────────────────────────
