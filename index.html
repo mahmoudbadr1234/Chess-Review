@@ -1139,7 +1139,7 @@ function getCacheKey(pgn) {
     hash = ((hash << 5) - hash) + pgn.charCodeAt(i);
     hash |= 0;
   }
-  return 'crp_cache_v15_' + hash;
+  return 'crp_cache_v16_' + hash;
 }
 
 function loadFromCache(pgn) {
@@ -1310,9 +1310,7 @@ function analyzePos(fen) {
 // EVAL UTILITIES
 // ─────────────────────────────────────────────
 function getWhiteCP(result, fen) {
-  const turn   = fen.split(' ')[1];
-  // If result.mate is +1 and it's white's turn, it means white has mate.
-  // If result.mate is +1 and it's black's turn, it means black has mate.
+  const turn = fen.split(' ')[1];
   if (result.mate !== null) {
     const isWinnerSide = result.mate > 0;
     const sideToMove = turn === 'w' ? 'white' : 'black';
@@ -1330,74 +1328,97 @@ function cpToDisplay(wcp) {
   return (p >= 0 ? '+' : '') + p.toFixed(1);
 }
 
-function cpToPercent(wcp) {
-  const capped = Math.max(-1000, Math.min(1000, wcp));
-  return 50 + 50 * Math.tanh(capped / 380);
+// Chess.com's exact Win Probability formula (from their official documentation)
+// W(cp) = 100 / (1 + exp(-0.00368208 * cp))
+function cpToWinPct(wcp) {
+  if (wcp >= 99000) return 100;
+  if (wcp <= -99000) return 0;
+  return 100 / (1 + Math.exp(-0.00368208 * wcp));
 }
+
+// Keep legacy alias for UI display
+function cpToPercent(wcp) { return cpToWinPct(wcp); }
 
 // ─────────────────────────────────────────────
 // MOVE CLASSIFICATION
 // ─────────────────────────────────────────────
+const PIECE_VAL = { p:1, n:3, b:3.1, r:5, q:9, k:99 };
+
 function getMaterialScore(fen) {
   const parts = fen.split(' ')[0];
-  const vals = { p:1, n:3, b:3.1, r:5, q:9, k:0 };
   let w = 0, b = 0;
   for (const c of parts) {
     const low = c.toLowerCase();
-    if (vals[low]) {
-      if (c === c.toUpperCase()) w += vals[low];
-      else b += vals[low];
+    const v = PIECE_VAL[low];
+    if (v && low !== 'k') {
+      if (c === c.toUpperCase()) w += v;
+      else b += v;
     }
   }
   return { w, b };
 }
 
-// Check if a square is attacked by the opponent using chess.js
-function isSquareThreatened(fenAfter, toSquare, isWhite) {
+// Static Exchange Evaluation (SEE): Is the moved piece a real sacrifice?
+// Returns true if the opponent can profitably capture the piece on toSquare
+function isSacrificeMove(fenAfter, toSquare, isWhite) {
   try {
     const ch = new Chess(fenAfter);
-    const opponentColor = isWhite ? 'b' : 'w';
-    // Get all opponent moves and see if any land on toSquare
+    const board = ch.board();
+    const col = toSquare.charCodeAt(0) - 97;
+    const row = 8 - parseInt(toSquare[1]);
+    const piece = board[row][col];
+    if (!piece) return false;
+
+    const movedPieceVal = PIECE_VAL[piece.type] || 0;
+    // Get all opponent moves and find cheapest attacker on toSquare
     const opponentMoves = ch.moves({ verbose: true });
+    let cheapestAttacker = 999;
     for (const m of opponentMoves) {
-      if (m.to === toSquare) return true;
+      if (m.to === toSquare) {
+        const aval = PIECE_VAL[m.piece] || 0;
+        if (aval < cheapestAttacker) cheapestAttacker = aval;
+      }
     }
-    return false;
+    // It's a real sacrifice if opponent's cheapest attacker < our piece value
+    // (meaning they gain material by capturing)
+    return cheapestAttacker < movedPieceVal;
   } catch(e) { return false; }
 }
 
 function classifyMove(prevWCP, currWCP, isWhite, fenPrev, fenCurr, bestMoveUCI, actualMoveUCI) {
-  const pPct = cpToPercent(prevWCP);
-  const cPct = cpToPercent(currWCP);
-  let loss = isWhite ? (pPct - cPct) : (cPct - pPct);
-  
+  // Convert to win probability percentage (Chess.com's exact formula)
+  const pWin = isWhite ? cpToWinPct(prevWCP) : (100 - cpToWinPct(prevWCP));
+  const cWin = isWhite ? cpToWinPct(currWCP) : (100 - cpToWinPct(currWCP));
+  const loss = pWin - cWin; // positive = you lost winning chances
+
   const isBest = (bestMoveUCI === actualMoveUCI);
 
-  // 1. MISS DETECTION
-  const isWinningBefore = isWhite ? prevWCP > 300 : prevWCP < -300;
-  const isLostAdvantage = isWhite ? (currWCP < 50) : (currWCP > -50);
-  if (isWinningBefore && isLostAdvantage && !isBest) return 'miss';
+  // ── Checkmate ──
+  if (Math.abs(currWCP) >= 99000) return isBest ? 'best' : (loss < 0 ? 'best' : 'excellent');
 
-  // 2. BRILLIANT (!!) - Using chess.js to detect a REAL sacrifice
-  // A sacrifice = you moved a piece to a square where the opponent CAN take it,
-  // AND the move is still the best/excellent move, AND you're still winning
-  if (isBest && loss < 2.0 && Math.abs(currWCP) > 80) {
-    const toSquare = actualMoveUCI.slice(2, 4);
-    if (isSquareThreatened(fenCurr, toSquare, isWhite)) {
-      return 'brilliant';
-    }
+  // ── BRILLIANT (!!) ──
+  // Chess.com definition: A strong move (Best or very close) that involves
+  // a real piece sacrifice — the opponent can profitably capture your piece.
+  if (loss <= 2.0 && Math.abs(cWin) > 55) {
+    const toSq = actualMoveUCI.slice(2, 4);
+    if (isSacrificeMove(fenCurr, toSq, isWhite)) return 'brilliant';
   }
 
-  // 3. GREAT (!) & WIN RECOVERY
-  if (loss < -2.0 && Math.abs(prevWCP) < 70 && Math.abs(currWCP) > 120) return 'great';
-  if (loss < 0 && Math.abs(currWCP) >= 99000) return 'best';
+  // ── GREAT (!) ──
+  // Chess.com: Move turns losing/equal position into winning one
+  // Win prob was ≤45% and jumps to ≥60%
+  if (loss < 0) { // position improved
+    if (pWin <= 45 && cWin >= 60) return 'great';
+    return isBest ? 'best' : 'excellent';
+  }
 
-  // 4. STANDARD CATEGORIES
-  if (isBest && loss < 0.6) return 'best';
-  if (loss <= 2.2)   return 'excellent';
-  if (loss <= 7.0)   return 'good';
-  if (loss <= 16)    return 'inaccuracy';
-  if (loss <= 32)    return 'mistake';
+  // ── STANDARD CATEGORIES (Chess.com official thresholds) ──
+  // loss is in win-probability percentage points
+  if (loss === 0 || isBest && loss < 0.5) return 'best';
+  if (loss <= 2)  return 'excellent';
+  if (loss <= 5)  return 'good';
+  if (loss <= 10) return 'inaccuracy';
+  if (loss <= 20) return 'mistake';
   return 'blunder';
 }
 
