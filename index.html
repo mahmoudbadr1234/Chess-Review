@@ -1139,7 +1139,7 @@ function getCacheKey(pgn) {
     hash = ((hash << 5) - hash) + pgn.charCodeAt(i);
     hash |= 0;
   }
-  return 'crp_cache_v8_' + hash;
+  return 'crp_cache_v9_' + hash;
 }
 
 function loadFromCache(pgn) {
@@ -1376,10 +1376,11 @@ function classifyMove(prevWCP, currWCP, isWhite, fenPrev, fenCurr, bestMoveUCI, 
   if (isWinningBefore && isLostAdvantage && !isBest) return 'miss';
 
   // 2. BRILLIANT (!!)
-  // Strategy: If move is strong (gain or small loss) AND involves material loss or high compensation
-  const isStrong = (loss < 3.5);
-  const isSacrifice = (mLoss >= 0.2) || (comp > 1.8);
-  if (isStrong && isSacrifice && (Math.abs(currWCP) > 75 || Math.abs(currWCP) >= Math.abs(prevWCP) - 25)) {
+  // Strategy: Strong move + Actual sacrifice (Pawn or Piece) OR extreme positional comp
+  const isStrong = (loss < 3.0);
+  const isSacrifice = (mLoss >= 0.8) || (comp > 2.5);
+  // Brilliant moves must be winning/strong or maintain a large advantage
+  if (isStrong && isSacrifice && Math.abs(currWCP) > 120) {
     return 'brilliant';
   }
 
