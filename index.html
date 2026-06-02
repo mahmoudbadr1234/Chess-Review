@@ -31,7 +31,7 @@
       --accent2:     #3b82f6;
       --accent-glow: rgba(139,92,246,0.25);
 
-      --brilliant:   #26c2a3;
+      --brilliant:   #1fb191;
       --best:        #96bc4b;
       --excellent:   #96bc4b;
       --good:        #fff;
@@ -39,6 +39,7 @@
       --mistake:     #e67e22;
       --blunder:     #e74c3c;
       --great:       #4575b4;
+      --miss:        #ff3b30;
 
       --sq-light:    #ebecd0;
       --sq-dark:     #779556;
@@ -606,26 +607,30 @@
     .coord-rank { top:4px; left:5px; }
     .coord-file { bottom:3px; right:5px; }
 
-    /* Classification markers on board */
+    /* Classification markers on board - Chess.com style */
     .cls-marker {
       position: absolute;
-      top: -6px; right: -6px;
-      width: 24px; height: 24px;
+      top: -15%; right: -15%;
+      width: 38%; height: 38%;
       border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      font: 900 11px/1 'Inter', sans-serif;
+      font: 900 13px/1 'Inter', sans-serif;
       color: white;
       z-index: 10;
-      box-shadow: 0 3px 6px rgba(0,0,0,0.4);
-      border: 2px solid #222;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.4);
       pointer-events: none;
-      text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+      text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+      border: 1.5px solid rgba(0,0,0,0.05); /* Slight outline */
     }
-    .cls-marker.star { font-size: 14px; }
-    .cls-marker.check { font-size: 13px; }
+    
+    /* Specific scaling for larger font on markers */
+    .cls-marker.brilliant, .cls-marker.blunder { font-size: 11px; }
+    .cls-marker.great, .cls-marker.mistake { font-size: 14px; }
+    .cls-marker.star { font-size: 16px; background: #96bc4b !important; }
+    .cls-marker.check { font-size: 15px; }
 
-    .cb-brilliant { background: var(--brilliant) !important; color: white !important; }
-    .cb-great     { background: var(--great) !important; color: white !important; }
+    .cb-brilliant { background: #1fb191 !important; color: white !important; }
+    .cb-great     { background: #4575b4 !important; color: white !important; }
     .cb-miss      { background: #ff3b30 !important; color: white !important; }
     .sq.L .coord { color:var(--sq-dark); }
     .sq.D .coord { color:var(--sq-light); }
@@ -1054,15 +1059,15 @@ const PIECES = {
 };
 
 const CLS = {
-  brilliant:  { label:'Brilliant',  icon:'!!', badge:'cb-brilliant',  color:'#26c2a3', bg:'#26c2a3' },
+  brilliant:  { label:'Brilliant',  icon:'!!', badge:'cb-brilliant',  color:'#1fb191', bg:'#1fb191' },
   great:      { label:'Great',      icon:'!',  badge:'cb-great',      color:'#4575b4', bg:'#4575b4' },
-  best:       { label:'Best',       icon:'⭐️', badge:'cb-best',       color:'#96bc4b', bg:'#96bc4b' },
-  excellent:  { label:'Excellent',  icon:'✔️', badge:'cb-excellent',  color:'#96bc4b', bg:'#96bc4b' },
-  good:       { label:'Good',       icon:'✔️', badge:'cb-good',       color:'#ffffff', bg:'#999' },
+  best:       { label:'Best',       icon:'★',  badge:'cb-best',       color:'#96bc4b', bg:'#96bc4b' },
+  excellent:  { label:'Excellent',  icon:'✓',  badge:'cb-excellent',  color:'#96bc4b', bg:'#96bc4b' },
+  good:       { label:'Good',       icon:'✓',  badge:'cb-good',       color:'#ffffff', bg:'#999' },
   inaccuracy: { label:'Inaccuracy', icon:'?!', badge:'cb-inaccuracy', color:'#f1c40f', bg:'#f1c40f' },
+  miss:       { label:'Miss',       icon:'❌', badge:'cb-miss',       color:'#ff3b30', bg:'#ff3b30' },
   mistake:    { label:'Mistake',    icon:'?',  badge:'cb-mistake',    color:'#e67e22', bg:'#e67e22' },
   blunder:    { label:'Blunder',    icon:'??', badge:'cb-blunder',    color:'#e74c3c', bg:'#e74c3c' },
-  miss:       { label:'Miss',       icon:'❌', badge:'cb-miss',       color:'#ff3b30', bg:'#ff3b30' },
 };
 
 // ─────────────────────────────────────────────
@@ -1441,10 +1446,12 @@ function renderBoard(fen, hl = {}, cls = null) {
         marker.style.background = clsCfg.bg;
         
         let iconHtml = clsCfg.icon;
-        if (cls === 'best' || cls === 'brilliant') marker.classList.add('star');
-        if (cls === 'excellent' || cls === 'good') {
+        if (cls === 'best') {
+          marker.classList.add('star');
+        } else if (cls === 'brilliant') {
+          marker.classList.add('brilliant');
+        } else if (cls === 'excellent' || cls === 'good') {
           marker.classList.add('check');
-          iconHtml = '✓';
         }
         
         marker.innerHTML = iconHtml;
