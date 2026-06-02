@@ -1139,7 +1139,7 @@ function getCacheKey(pgn) {
     hash = ((hash << 5) - hash) + pgn.charCodeAt(i);
     hash |= 0;
   }
-  return 'crp_cache_v11_' + hash;
+  return 'crp_cache_v12_' + hash;
 }
 
 function loadFromCache(pgn) {
@@ -1358,35 +1358,34 @@ function classifyMove(prevWCP, currWCP, isWhite, fenPrev, fenCurr, bestMoveUCI, 
   let loss = isWhite ? (pPct - cPct) : (cPct - pPct);
   
   const isBest = (bestMoveUCI === actualMoveUCI);
-
-  // 1. MISS DETECTION (The purple X)
-  const isWinningBefore = isWhite ? prevWCP > 300 : prevWCP < -300;
-  const isLostAdvantage = isWhite ? (currWCP < 50) : (currWCP > -50);
-  if (isWinningBefore && isLostAdvantage && !isBest) return 'miss';
-
-  // 2. BRILLIANT (!!)
-  // Strategy: Move is Excellent/Best AND Material balance for you dropped by >= 1 pawn
   const mP = getMaterialScore(fenPrev);
   const mC = getMaterialScore(fenCurr);
   const mLoss = isWhite ? (mP.w - mC.w) : (mP.b - mC.b);
+  
+  const matBalance = mC.w - mC.b;
+  const evalScore = currWCP / 100;
+  const comp = isWhite ? (evalScore - matBalance) : (matBalance - evalScore);
 
-  if (loss < 2.5 && mLoss >= 0.9 && Math.abs(currWCP) > 80) return 'brilliant';
+  // 1. MISS DETECTION (The purple X)
+  const isWinningBefore = isWhite ? prevWCP > 280 : prevWCP < -280;
+  const isLostAdvantage = isWhite ? (currWCP < 60) : (currWCP > -60);
+  if (isWinningBefore && isLostAdvantage && !isBest) return 'miss';
+
+  // 2. BRILLIANT (!!)
+  // Strategy: Strong move + Actual sacrifice OR huge positional compensation (Comp > 2.2)
+  if (loss < 3.0 && (mLoss >= 0.9 || comp > 2.2) && Math.abs(currWCP) > 80) return 'brilliant';
 
   // 3. GREAT (!) & WIN RECOVERY
-  if (loss < 0) {
-    if (Math.abs(currWCP) >= 99000) return 'best';
-    if (Math.abs(prevWCP) < 50 && Math.abs(currWCP) > 120) return 'great';
-    return isBest ? 'best' : 'excellent';
-  }
-  
-  if ((isBest || loss < 2.5) && Math.abs(prevWCP) < 40 && Math.abs(currWCP) > 90) return 'great';
+  // Spike in evaluation while position was balanced
+  if (loss < -2.0 && Math.abs(prevWCP) < 80 && Math.abs(currWCP) > 120) return 'great';
+  if (loss < 0 && Math.abs(currWCP) >= 99000) return 'best';
 
-  // 4. STANDARD CATEGORIES
-  if (loss <= 1.8)   return isBest ? 'best' : 'excellent';
-  if (loss <= 6.0)   return 'excellent';
-  if (loss <= 14)    return 'good';
-  if (loss <= 24)    return 'inaccuracy';
-  if (loss <= 45)    return 'mistake';
+  // 4. STANDARD CATEGORIES (Strict match to Chess.com)
+  if (isBest && loss < 1.0) return 'best';
+  if (loss <= 2.2)   return 'excellent';
+  if (loss <= 7.0)   return 'good';
+  if (loss <= 16)    return 'inaccuracy';
+  if (loss <= 35)    return 'mistake';
   return 'blunder';
 }
 
