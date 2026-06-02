@@ -1139,7 +1139,7 @@ function getCacheKey(pgn) {
     hash = ((hash << 5) - hash) + pgn.charCodeAt(i);
     hash |= 0;
   }
-  return 'crp_cache_v14_' + hash;
+  return 'crp_cache_v15_' + hash;
 }
 
 function loadFromCache(pgn) {
@@ -1352,33 +1352,41 @@ function getMaterialScore(fen) {
   return { w, b };
 }
 
+// Check if a square is attacked by the opponent using chess.js
+function isSquareThreatened(fenAfter, toSquare, isWhite) {
+  try {
+    const ch = new Chess(fenAfter);
+    const opponentColor = isWhite ? 'b' : 'w';
+    // Get all opponent moves and see if any land on toSquare
+    const opponentMoves = ch.moves({ verbose: true });
+    for (const m of opponentMoves) {
+      if (m.to === toSquare) return true;
+    }
+    return false;
+  } catch(e) { return false; }
+}
+
 function classifyMove(prevWCP, currWCP, isWhite, fenPrev, fenCurr, bestMoveUCI, actualMoveUCI) {
   const pPct = cpToPercent(prevWCP);
   const cPct = cpToPercent(currWCP);
   let loss = isWhite ? (pPct - cPct) : (cPct - pPct);
   
   const isBest = (bestMoveUCI === actualMoveUCI);
-  const mP = getMaterialScore(fenPrev);
-  const mC = getMaterialScore(fenCurr);
-  const mLoss = isWhite ? (mP.w - mC.w) : (mP.b - mC.b);
-
-  const matBalance = mC.w - mC.b;
-  const evalScore = currWCP / 100;
-  const comp = isWhite ? (evalScore - matBalance) : (matBalance - evalScore);
 
   // 1. MISS DETECTION
   const isWinningBefore = isWhite ? prevWCP > 300 : prevWCP < -300;
   const isLostAdvantage = isWhite ? (currWCP < 50) : (currWCP > -50);
   if (isWinningBefore && isLostAdvantage && !isBest) return 'miss';
 
-  // 2. BRILLIANT (!!) - Ultra-Balanced
-  // Condition A: Actual Piece Sacrifice (mLoss >= 1 pawn)
-  const isRealSac = mLoss >= 0.8;
-  // Condition B: Positional Sacrifice (Hanging piece like Qh1+)
-  // We use comp > 2.8 and ONLY if it's the #1 move and eval is very high
-  const isPosSac = isBest && comp > 2.8 && Math.abs(currWCP) > 200;
-  
-  if (loss < 1.0 && (isRealSac || isPosSac) && Math.abs(currWCP) > 80) return 'brilliant';
+  // 2. BRILLIANT (!!) - Using chess.js to detect a REAL sacrifice
+  // A sacrifice = you moved a piece to a square where the opponent CAN take it,
+  // AND the move is still the best/excellent move, AND you're still winning
+  if (isBest && loss < 2.0 && Math.abs(currWCP) > 80) {
+    const toSquare = actualMoveUCI.slice(2, 4);
+    if (isSquareThreatened(fenCurr, toSquare, isWhite)) {
+      return 'brilliant';
+    }
+  }
 
   // 3. GREAT (!) & WIN RECOVERY
   if (loss < -2.0 && Math.abs(prevWCP) < 70 && Math.abs(currWCP) > 120) return 'great';
