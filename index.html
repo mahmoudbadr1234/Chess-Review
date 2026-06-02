@@ -1139,7 +1139,7 @@ function getCacheKey(pgn) {
     hash = ((hash << 5) - hash) + pgn.charCodeAt(i);
     hash |= 0;
   }
-  return 'crp_cache_v7_' + hash;
+  return 'crp_cache_v8_' + hash;
 }
 
 function loadFromCache(pgn) {
@@ -1360,47 +1360,46 @@ function classifyMove(prevWCP, currWCP, isWhite, fenPrev, fenCurr, bestMoveUCI, 
   
   const isBest = (bestMoveUCI === actualMoveUCI);
 
+  const mP = getMaterialScore(fenPrev);
+  const mC = getMaterialScore(fenCurr);
+  const mLoss = isWhite ? (mP.w - mC.w) : (mP.b - mC.b);
+  
+  // Positional Compensation (Comp): Eval vs Material Balance
+  // If Comp is high, it means you have high eval despite low material (SACRIFICE)
+  const matBalance = mC.w - mC.b;
+  const evalScore = currWCP / 100;
+  const comp = isWhite ? (evalScore - matBalance) : (matBalance - evalScore);
+
   // 1. MISS DETECTION (The purple X)
-  // Much stricter: Advantage > +2.5 dropped to below +0.5
   const isWinningBefore = isWhite ? prevWCP > 250 : prevWCP < -250;
   const isLostAdvantage = isWhite ? (currWCP < 50) : (currWCP > -50);
   if (isWinningBefore && isLostAdvantage && !isBest) return 'miss';
 
-  // 2. MATE & WIN RECOVERY
-  if (loss < 0) {
-    if (Math.abs(currWCP) >= 99000) return 'best';
-    
-    // Recovery / Great Move detection
-    if (Math.abs(prevWCP) < 70 && Math.abs(currWCP) > 130) return 'great';
-    
-    // Brilliant sacrifice while winning
-    const mP = getMaterialScore(fenPrev);
-    const mC = getMaterialScore(fenCurr);
-    const mLoss = isWhite ? (mP.w - mC.w) : (mP.b - mC.b);
-    if (mLoss >= 0.3 && Math.abs(currWCP) > 60) return 'brilliant';
-    
-    return isBest ? 'best' : 'excellent';
+  // 2. BRILLIANT (!!)
+  // Strategy: If move is strong (gain or small loss) AND involves material loss or high compensation
+  const isStrong = (loss < 3.5);
+  const isSacrifice = (mLoss >= 0.2) || (comp > 1.8);
+  if (isStrong && isSacrifice && (Math.abs(currWCP) > 75 || Math.abs(currWCP) >= Math.abs(prevWCP) - 25)) {
+    return 'brilliant';
   }
 
-  // 3. BRILLIANT & GREAT
-  if (isBest || loss < 5.0) {
-    const mP = getMaterialScore(fenPrev);
-    const mC = getMaterialScore(fenCurr);
-    const mLoss = isWhite ? (mP.w - mC.w) : (mP.b - mC.b);
-    
-    // Brilliant (!!): Now even more generous for hanging pieces
-    if (mLoss >= 0.25 && (Math.abs(currWCP) > 60 || Math.abs(currWCP) >= Math.abs(prevWCP) - 30)) return 'brilliant';
-    
-    // Great (!)
+  // 3. GREAT (!) & WIN RECOVERY
+  if (loss < 0) {
+    if (Math.abs(currWCP) >= 99000) return 'best';
+    if (Math.abs(prevWCP) < 70 && Math.abs(currWCP) > 130) return 'great';
+    return isBest ? 'best' : 'excellent';
+  }
+  
+  if (isBest || loss < 4.5) {
     if (Math.abs(prevWCP) < 50 && Math.abs(currWCP) > 100) return 'great';
   }
 
-  // 4. STANDARD CATEGORIES (Chess.com Win Pct Buckets)
+  // 4. STANDARD CATEGORIES (Chess.com precision)
   if (loss <= 2.2)   return isBest ? 'best' : 'excellent';
-  if (loss <= 6.8)   return 'excellent';
-  if (loss <= 14)    return 'good';
-  if (loss <= 25)    return 'inaccuracy';
-  if (loss <= 45)    return 'mistake';
+  if (loss <= 7.0)   return 'excellent';
+  if (loss <= 15)    return 'good';
+  if (loss <= 28)    return 'inaccuracy';
+  if (loss <= 48)    return 'mistake';
   return 'blunder';
 }
 
