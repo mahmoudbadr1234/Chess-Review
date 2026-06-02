@@ -1139,7 +1139,7 @@ function getCacheKey(pgn) {
     hash = ((hash << 5) - hash) + pgn.charCodeAt(i);
     hash |= 0;
   }
-  return 'crp_cache_' + hash;
+  return 'crp_cache_v2_' + hash;
 }
 
 function loadFromCache(pgn) {
@@ -1351,32 +1351,44 @@ function classifyMove(prevWCP, currWCP, isWhite, fenPrev, fenCurr, bestMoveUCI, 
   
   const isBest = (bestMoveUCI === actualMoveUCI);
 
-  // Mate handling
+  // CRITICAL FIX: If you improve your position or reach Mate, it can't be a blunder
+  if (pctLoss < 0) {
+    if (Math.abs(currWCP) >= 99000) return 'best';
+    
+    // Check if it was a brilliant sacrifice while gaining ground
+    const matPrev = getMaterialScore(fenPrev);
+    const matCurr = getMaterialScore(fenCurr);
+    const matLoss = isWhite ? (matPrev.w - matCurr.w) : (matPrev.b - matCurr.b);
+    if (matLoss >= 0.5 && Math.abs(currWCP) > 50) return 'brilliant';
+    
+    return isBest ? 'best' : 'excellent';
+  }
+
+  // Mate handling for already lost/won positions
   if (Math.abs(prevWCP) >= 99000) {
     if (isWhite && prevWCP > 0 && currWCP < 0)  return 'blunder';
     if (!isWhite && prevWCP < 0 && currWCP > 0) return 'blunder';
     return isBest ? 'best' : 'excellent';
   }
 
-  // Brilliant Detection: Sacrifice & Best Move & position doesn't collapse
-  if (isBest && pctLoss < 2.5) {
+  // Brilliant Detection: Sacrifice & Best Move
+  // Chess.com is generous with Brilliant moves if it involves hanging material
+  if (isBest && pctLoss < 3) {
     const matPrev = getMaterialScore(fenPrev);
     const matCurr = getMaterialScore(fenCurr);
     const matLoss = isWhite ? (matPrev.w - matCurr.w) : (matPrev.b - matCurr.b);
     
-    // Sacrifice heuristic: if you lose 0.9+ points (effectively a pawn/piece) 
-    // and it remains the best move and winning, it's brilliant
-    if (matLoss >= 0.9 && Math.abs(currWCP) > 80) return 'brilliant';
+    if (matLoss >= 0.5 && (Math.abs(currWCP) > 100 || Math.abs(currWCP) >= Math.abs(prevWCP))) return 'brilliant';
     
     // Great move heuristic: large swing in position or saving a lost position
     if (Math.abs(prevWCP) < 50 && Math.abs(currWCP) > 120) return 'great';
   }
 
-  if (pctLoss <= 1.8)  return isBest ? 'best' : 'excellent';
-  if (pctLoss <= 5)    return 'excellent';
-  if (pctLoss <= 12)   return 'good';
-  if (pctLoss <= 20)   return 'inaccuracy';
-  if (pctLoss <= 35)   return 'mistake';
+  if (pctLoss <= 2.0)  return isBest ? 'best' : 'excellent';
+  if (pctLoss <= 6)    return 'excellent';
+  if (pctLoss <= 14)   return 'good';
+  if (pctLoss <= 22)   return 'inaccuracy';
+  if (pctLoss <= 40)   return 'mistake';
   return 'blunder';
 }
 
