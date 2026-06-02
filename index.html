@@ -1139,7 +1139,7 @@ function getCacheKey(pgn) {
     hash = ((hash << 5) - hash) + pgn.charCodeAt(i);
     hash |= 0;
   }
-  return 'crp_cache_v3_' + hash;
+  return 'crp_cache_v4_' + hash;
 }
 
 function loadFromCache(pgn) {
@@ -1312,9 +1312,15 @@ function analyzePos(fen) {
 // ─────────────────────────────────────────────
 function getWhiteCP(result, fen) {
   const turn   = fen.split(' ')[1];
-  const factor = turn === 'b' ? -1 : 1;
-  if (result.mate !== null) return factor * (result.mate > 0 ? 99999 : -99999);
-  if (result.cp   !== null) return factor * result.cp;
+  // If result.mate is +1 and it's white's turn, it means white has mate.
+  // If result.mate is +1 and it's black's turn, it means black has mate.
+  if (result.mate !== null) {
+    const isWinnerSide = result.mate > 0;
+    const sideToMove = turn === 'w' ? 'white' : 'black';
+    if (sideToMove === 'white') return isWinnerSide ? 99999 : -99999;
+    else return isWinnerSide ? -99999 : 99999;
+  }
+  if (result.cp !== null) return turn === 'b' ? -result.cp : result.cp;
   return 0;
 }
 
@@ -1381,17 +1387,17 @@ function classifyMove(prevWCP, currWCP, isWhite, fenPrev, fenCurr, bestMoveUCI, 
     const matCurr = getMaterialScore(fenCurr);
     const matLoss = isWhite ? (matPrev.w - matCurr.w) : (matPrev.b - matCurr.b);
     
-    if (matLoss >= 0.5 && (Math.abs(currWCP) > 100 || Math.abs(currWCP) >= Math.abs(prevWCP))) return 'brilliant';
+    if (matLoss >= 0.4 && (Math.abs(currWCP) > 80 || Math.abs(currWCP) >= Math.abs(prevWCP) - 50)) return 'brilliant';
     
     // Great move heuristic: large swing in position or saving a lost position
-    if (Math.abs(prevWCP) < 50 && Math.abs(currWCP) > 120) return 'great';
+    if (Math.abs(prevWCP) < 60 && Math.abs(currWCP) > 110) return 'great';
   }
 
-  if (pctLoss <= 2.5)  return isBest ? 'best' : 'excellent';
-  if (pctLoss <= 6.5)  return 'excellent';
-  if (pctLoss <= 15)   return 'good';
-  if (pctLoss <= 25)   return 'inaccuracy';
-  if (pctLoss <= 45)   return 'mistake';
+  if (pctLoss <= 2.8)   return isBest ? 'best' : 'excellent';
+  if (pctLoss <= 7.5)   return 'excellent';
+  if (pctLoss <= 16)    return 'good';
+  if (pctLoss <= 28)    return 'inaccuracy';
+  if (pctLoss <= 48)    return 'mistake';
   return 'blunder';
 }
 
@@ -2021,9 +2027,13 @@ async function doAnalyze() {
       let res;
       if (tmpChess.game_over()) {
         const isMate = tmpChess.in_checkmate();
+        // For game_over, if white delivers mate, the turn is black.
+        // If it's black's turn and they are mated, the evaluation is -M for them (so +M for white).
         const turn = tmpChess.turn();
-        const mateScore = isMate ? (turn === 'w' ? -1 : 1) : null;
-        res = { cp: isMate ? null : 0, mate: mateScore, bestMove: null, pv: [] };
+        const resMate = isMate ? (turn === 'w' ? -1 : -1) : null; 
+        // Actually, let's keep it simple: if it's mate, the side TO MOVE just lost.
+        // So the score is always -M for the side to move.
+        res = { cp: isMate ? null : 0, mate: -1, bestMove: null, pv: [] };
       } else {
         res = await analyzePos(fen);
       }
