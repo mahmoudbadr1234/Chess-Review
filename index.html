@@ -1040,7 +1040,7 @@
 // ─────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────
-const DEPTH = 14;
+const DEPTH = 16;
 const SF_CDN = 'https://cdn.jsdelivr.net/npm/stockfish.js/stockfish.js';
 
 const PIECES = {
@@ -1139,7 +1139,7 @@ function getCacheKey(pgn) {
     hash = ((hash << 5) - hash) + pgn.charCodeAt(i);
     hash |= 0;
   }
-  return 'crp_cache_v4_' + hash;
+  return 'crp_cache_v5_' + hash;
 }
 
 function loadFromCache(pgn) {
@@ -1380,21 +1380,26 @@ function classifyMove(prevWCP, currWCP, isWhite, fenPrev, fenCurr, bestMoveUCI, 
     return isBest ? 'best' : 'excellent';
   }
 
-  // Brilliant Detection: Sacrifice & Best Move
-  // Chess.com is generous with Brilliant moves if it involves hanging material
-  if (isBest && pctLoss < 3) {
+  // Brilliant Detection: Sacrifice & (Best or Excellent move)
+  // Chess.com labels sacrifices as Brilliant if they are strong moves, not necessarily #1
+  const isStrong = isBest || pctLoss < 3.5;
+  if (isStrong) {
     const matPrev = getMaterialScore(fenPrev);
     const matCurr = getMaterialScore(fenCurr);
     const matLoss = isWhite ? (matPrev.w - matCurr.w) : (matPrev.b - matCurr.b);
     
-    if (matLoss >= 0.4 && (Math.abs(currWCP) > 80 || Math.abs(currWCP) >= Math.abs(prevWCP) - 50)) return 'brilliant';
+    // Sacrifice heuristic (very relaxed to match Chess.com behavior)
+    // If you lose 0.3+ points (hanging pawn/piece) and stay winning/strong -> Brilliant
+    if (matLoss >= 0.3 && (Math.abs(currWCP) > 70 || Math.abs(currWCP) >= Math.abs(prevWCP) - 30)) return 'brilliant';
     
     // Great move heuristic: large swing in position or saving a lost position
-    if (Math.abs(prevWCP) < 60 && Math.abs(currWCP) > 110) return 'great';
+    if (Math.abs(prevWCP) < 70 && Math.abs(currWCP) > 100) return 'great';
   }
 
-  if (pctLoss <= 2.8)   return isBest ? 'best' : 'excellent';
-  if (pctLoss <= 7.5)   return 'excellent';
+  // Improved Best logic: be more generous (match Chess.com stats)
+  if (pctLoss <= 0.8)  return 'best';
+  if (pctLoss <= 3.0)  return isBest ? 'best' : 'excellent';
+  if (pctLoss <= 7.8)   return 'excellent';
   if (pctLoss <= 16)    return 'good';
   if (pctLoss <= 28)    return 'inaccuracy';
   if (pctLoss <= 48)    return 'mistake';
