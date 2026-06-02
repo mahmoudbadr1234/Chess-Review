@@ -1040,7 +1040,7 @@
 // ─────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────
-const DEPTH = 20;
+const DEPTH = 16;
 const SF_CDN = 'https://cdn.jsdelivr.net/npm/stockfish.js/stockfish.js';
 
 const PIECES = {
@@ -1139,7 +1139,7 @@ function getCacheKey(pgn) {
     hash = ((hash << 5) - hash) + pgn.charCodeAt(i);
     hash |= 0;
   }
-  return 'crp_cache_v10_' + hash;
+  return 'crp_cache_v11_' + hash;
 }
 
 function loadFromCache(pgn) {
@@ -1302,8 +1302,7 @@ function analyzePos(fen) {
     sfWorker.addEventListener('message', handler);
     sfWorker.postMessage('stop');
     sfWorker.postMessage(`position fen ${fen}`);
-    // Maximum precision for perfect Chess.com mapping
-    sfWorker.postMessage(`go depth ${DEPTH} movetime 1500`);
+    sfWorker.postMessage(`go depth ${DEPTH} movetime 500`);
   });
 }
 
@@ -1360,44 +1359,34 @@ function classifyMove(prevWCP, currWCP, isWhite, fenPrev, fenCurr, bestMoveUCI, 
   
   const isBest = (bestMoveUCI === actualMoveUCI);
 
-  const mP = getMaterialScore(fenPrev);
-  const mC = getMaterialScore(fenCurr);
-  const mLoss = isWhite ? (mP.w - mC.w) : (mP.b - mC.b);
-  
-  // Positional Compensation (Comp): Eval vs Material Balance
-  // If Comp is high, it means you have high eval despite low material (SACRIFICE)
-  const matBalance = mC.w - mC.b;
-  const evalScore = currWCP / 100;
-  const comp = isWhite ? (evalScore - matBalance) : (matBalance - evalScore);
-
   // 1. MISS DETECTION (The purple X)
-  const isWinningBefore = isWhite ? prevWCP > 250 : prevWCP < -250;
+  const isWinningBefore = isWhite ? prevWCP > 300 : prevWCP < -300;
   const isLostAdvantage = isWhite ? (currWCP < 50) : (currWCP > -50);
   if (isWinningBefore && isLostAdvantage && !isBest) return 'miss';
 
   // 2. BRILLIANT (!!)
-  // Tight Rule: Must be a strong move AND lose at least 1 pawn worth of material in this move
-  if (loss < 2.5 && mLoss >= 0.9 && Math.abs(currWCP) > 100) {
-    return 'brilliant';
-  }
+  // Strategy: Move is Excellent/Best AND Material balance for you dropped by >= 1 pawn
+  const mP = getMaterialScore(fenPrev);
+  const mC = getMaterialScore(fenCurr);
+  const mLoss = isWhite ? (mP.w - mC.w) : (mP.b - mC.b);
+
+  if (loss < 2.5 && mLoss >= 0.9 && Math.abs(currWCP) > 80) return 'brilliant';
 
   // 3. GREAT (!) & WIN RECOVERY
   if (loss < 0) {
     if (Math.abs(currWCP) >= 99000) return 'best';
-    if (Math.abs(prevWCP) < 70 && Math.abs(currWCP) > 130) return 'great';
+    if (Math.abs(prevWCP) < 50 && Math.abs(currWCP) > 120) return 'great';
     return isBest ? 'best' : 'excellent';
   }
   
-  if (isBest || loss < 4.5) {
-    if (Math.abs(prevWCP) < 50 && Math.abs(currWCP) > 100) return 'great';
-  }
+  if ((isBest || loss < 2.5) && Math.abs(prevWCP) < 40 && Math.abs(currWCP) > 90) return 'great';
 
-  // 4. STANDARD CATEGORIES (Chess.com precision)
-  if (loss <= 2.2)   return isBest ? 'best' : 'excellent';
-  if (loss <= 7.0)   return 'excellent';
-  if (loss <= 15)    return 'good';
-  if (loss <= 28)    return 'inaccuracy';
-  if (loss <= 48)    return 'mistake';
+  // 4. STANDARD CATEGORIES
+  if (loss <= 1.8)   return isBest ? 'best' : 'excellent';
+  if (loss <= 6.0)   return 'excellent';
+  if (loss <= 14)    return 'good';
+  if (loss <= 24)    return 'inaccuracy';
+  if (loss <= 45)    return 'mistake';
   return 'blunder';
 }
 
