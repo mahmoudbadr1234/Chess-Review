@@ -1040,7 +1040,7 @@
 // ─────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────
-const DEPTH = 13;
+const DEPTH = 14;
 const SF_CDN = 'https://cdn.jsdelivr.net/npm/stockfish.js/stockfish.js';
 
 const PIECES = {
@@ -1139,7 +1139,7 @@ function getCacheKey(pgn) {
     hash = ((hash << 5) - hash) + pgn.charCodeAt(i);
     hash |= 0;
   }
-  return 'crp_cache_v2_' + hash;
+  return 'crp_cache_v3_' + hash;
 }
 
 function loadFromCache(pgn) {
@@ -1223,7 +1223,10 @@ function parsePGN(pgn) {
   if (!chess.load_pgn(pgn)) throw new Error('Could not parse PGN. Make sure it is a valid PGN string.');
 
   const headers = chess.header();
-  const moves   = chess.history({ verbose: true });
+  const moves   = chess.history({ verbose: true }).map(mv => ({
+    ...mv,
+    uci: mv.from + mv.to + (mv.promotion || '')
+  }));
 
   // Replay to collect all FENs
   const positions = [];
@@ -1384,11 +1387,11 @@ function classifyMove(prevWCP, currWCP, isWhite, fenPrev, fenCurr, bestMoveUCI, 
     if (Math.abs(prevWCP) < 50 && Math.abs(currWCP) > 120) return 'great';
   }
 
-  if (pctLoss <= 2.0)  return isBest ? 'best' : 'excellent';
-  if (pctLoss <= 6)    return 'excellent';
-  if (pctLoss <= 14)   return 'good';
-  if (pctLoss <= 22)   return 'inaccuracy';
-  if (pctLoss <= 40)   return 'mistake';
+  if (pctLoss <= 2.5)  return isBest ? 'best' : 'excellent';
+  if (pctLoss <= 6.5)  return 'excellent';
+  if (pctLoss <= 15)   return 'good';
+  if (pctLoss <= 25)   return 'inaccuracy';
+  if (pctLoss <= 45)   return 'mistake';
   return 'blunder';
 }
 
