@@ -1040,7 +1040,7 @@
 // ─────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────
-const DEPTH = 16;
+const DEPTH = 13;
 const SF_CDN = 'https://cdn.jsdelivr.net/npm/stockfish.js/stockfish.js';
 
 const PIECES = {
@@ -1128,6 +1128,36 @@ function setProgress(p, txt) {
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ─────────────────────────────────────────────
+// CACHE SYSTEM
+// ─────────────────────────────────────────────
+function getCacheKey(pgn) {
+  // Simple hash for PGN string
+  let hash = 0;
+  for (let i = 0; i < pgn.length; i++) {
+    hash = ((hash << 5) - hash) + pgn.charCodeAt(i);
+    hash |= 0;
+  }
+  return 'crp_cache_' + hash;
+}
+
+function loadFromCache(pgn) {
+  try {
+    const key = getCacheKey(pgn);
+    const data = localStorage.getItem(key);
+    return data ? JSON.parse(data) : null;
+  } catch(e) { return null; }
+}
+
+function saveToCache(pgn, data) {
+  try {
+    const key = getCacheKey(pgn);
+    // Limit cache to avoid filling up localStorage
+    if (localStorage.length > 50) localStorage.clear(); 
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch(e) {}
+}
 
 // ─────────────────────────────────────────────
 // PLATFORM DETECTION & FETCHING
@@ -1226,6 +1256,8 @@ function initEngine() {
       };
       sfWorker.onerror  = (e) => { clearTimeout(timer); reject(e); };
       sfWorker.postMessage('uci');
+      sfWorker.postMessage('setoption name Threads value 4');
+      sfWorker.postMessage('setoption name Hash value 32');
     } catch (e) { reject(e); }
   });
 }
@@ -1267,7 +1299,8 @@ function analyzePos(fen) {
     sfWorker.addEventListener('message', handler);
     sfWorker.postMessage('stop');
     sfWorker.postMessage(`position fen ${fen}`);
-    sfWorker.postMessage(`go depth ${DEPTH}`);
+    // Use both depth and time limit for consistent speed
+    sfWorker.postMessage(`go depth ${DEPTH} movetime 500`);
   });
 }
 
@@ -1326,25 +1359,24 @@ function classifyMove(prevWCP, currWCP, isWhite, fenPrev, fenCurr, bestMoveUCI, 
   }
 
   // Brilliant Detection: Sacrifice & Best Move & position doesn't collapse
-  if (isBest && pctLoss < 3) {
+  if (isBest && pctLoss < 2.5) {
     const matPrev = getMaterialScore(fenPrev);
     const matCurr = getMaterialScore(fenCurr);
     const matLoss = isWhite ? (matPrev.w - matCurr.w) : (matPrev.b - matCurr.b);
     
-    // If we lost more than 1.5 points (effectively a piece or multiple pawns) 
-    // and it was the best move and we didn't lose ground
-    if (matLoss >= 2) return 'brilliant';
+    // Sacrifice heuristic: if you lose 0.9+ points (effectively a pawn/piece) 
+    // and it remains the best move and winning, it's brilliant
+    if (matLoss >= 0.9 && Math.abs(currWCP) > 80) return 'brilliant';
     
-    // Great move: The only move that maintains a large advantage 
-    // or saves a game (hard to compute without multi-pv, so use eval diff heuristic)
-    if (Math.abs(prevWCP) < 50 && Math.abs(currWCP) > 150) return 'great';
+    // Great move heuristic: large swing in position or saving a lost position
+    if (Math.abs(prevWCP) < 50 && Math.abs(currWCP) > 120) return 'great';
   }
 
-  if (pctLoss <= 1.5)  return isBest ? 'best' : 'excellent';
-  if (pctLoss <= 4)    return 'excellent';
-  if (pctLoss <= 10)   return 'good';
-  if (pctLoss <= 18)   return 'inaccuracy';
-  if (pctLoss <= 30)   return 'mistake';
+  if (pctLoss <= 1.8)  return isBest ? 'best' : 'excellent';
+  if (pctLoss <= 5)    return 'excellent';
+  if (pctLoss <= 12)   return 'good';
+  if (pctLoss <= 20)   return 'inaccuracy';
+  if (pctLoss <= 35)   return 'mistake';
   return 'blunder';
 }
 
@@ -1905,7 +1937,7 @@ async function doAnalyze() {
   // ── 2. Parse PGN ────────────────────────────
   setStep('parse','active');
   document.getElementById('load-detail').textContent = 'Parsing PGN...';
-  await sleep(80);
+  await sleep(50);
 
   let parsed;
   try {
@@ -1914,6 +1946,17 @@ async function doAnalyze() {
     showScreen('landing');
     toast('❌ ' + e.message);
     document.getElementById('analyze-btn').disabled = false;
+    return;
+  }
+
+  // Check Cache First
+  const cached = loadFromCache(pgn);
+  if (cached) {
+    G = cached;
+    setProgress(100, '✅ Loaded from memory!');
+    await sleep(200);
+    document.getElementById('analyze-btn').disabled = false;
+    renderResults();
     return;
   }
 
@@ -1929,14 +1972,14 @@ async function doAnalyze() {
 
   // ── 3. Init Stockfish ────────────────────────
   setStep('engine','active');
-  document.getElementById('load-detail').textContent = 'Loading Stockfish engine...';
-  document.getElementById('st-engine').textContent   = 'Loading Stockfish engine...';
+  document.getElementById('load-detail').textContent = 'Loading Engine...';
+  document.getElementById('st-engine').textContent   = 'Engine readying...';
 
   try {
     if (!sfWorker) await initEngine();
   } catch (e) {
     showScreen('landing');
-    toast('❌ Failed to load engine. Check your internet connection.');
+    toast('❌ Failed to load engine.');
     document.getElementById('analyze-btn').disabled = false;
     return;
   }
@@ -1949,12 +1992,12 @@ async function doAnalyze() {
   const wEvals = new Array(N).fill(null);
 
   for (let i = 0; i < N; i++) {
-    const pct       = 18 + (i / N * 62);  // max 80% — leaves clear room for classify step
+    const pct       = 18 + (i / N * 62);
     const color     = i % 2 === 1 ? 'White' : 'Black';
-    const moveLabel = i === 0 ? 'Starting position' : `Move ${Math.ceil(i/2)} — ${color}`;
-    document.getElementById('st-engine').textContent   = `Analyzing position ${i+1} / ${N}…`;
+    const moveLabel = i === 0 ? 'Start' : `Move ${Math.ceil(i/2)} (${color})`;
+    document.getElementById('st-engine').textContent   = `Analyzing ${i+1}/${N}`;
     document.getElementById('load-detail').textContent = moveLabel;
-    setProgress(pct, `Position ${i+1} of ${N}`);
+    setProgress(pct, `Position ${i+1}/${N}`);
 
     try {
       const fen = parsed.positions[i];
@@ -1964,8 +2007,6 @@ async function doAnalyze() {
       if (tmpChess.game_over()) {
         const isMate = tmpChess.in_checkmate();
         const turn = tmpChess.turn();
-        // If white is mated -> CP is -M, so white mate is negative
-        // If black is mated -> CP is +M, so black mate is positive
         const mateScore = isMate ? (turn === 'w' ? -1 : 1) : null;
         res = { cp: isMate ? null : 0, mate: mateScore, bestMove: null, pv: [] };
       } else {
@@ -1975,13 +2016,11 @@ async function doAnalyze() {
       evals[i]  = res;
       wEvals[i] = getWhiteCP(res, fen);
     } catch (ex) {
-      console.warn('analyzePos failed for position', i, ex);
       evals[i]  = { cp: 0, mate: null, bestMove: null, pv: [] };
       wEvals[i] = 0;
     }
 
-    // Yield to browser every 3 moves so UI stays responsive
-    if (i % 3 === 0) await sleep(8);
+    if (i % 5 === 0) await sleep(1); // Even faster yield
   }
 
   setStep('engine','done');
@@ -2022,6 +2061,7 @@ async function doAnalyze() {
 
   // ── 6. Store game data & render ─────────────
   G = { ...parsed, evals, wEvals, cls, wAcc, bAcc };
+  saveToCache(pgn, G);
   document.getElementById('analyze-btn').disabled = false;
   renderResults();
 }
