@@ -2065,9 +2065,40 @@ async function doAnalyze() {
   setStep('parse','done');
   setProgress(18, 'PGN parsed — ' + parsed.moves.length + ' moves');
 
-  // ── 3. Init Stockfish ────────────────────────
+  // ── 3. Try Python Backend First ───────────────
   setStep('engine','active');
-  document.getElementById('load-detail').textContent = 'Loading Engine...';
+  document.getElementById('load-detail').textContent = 'Attempting Python Analysis...';
+  document.getElementById('st-engine').textContent   = 'Connecting to server.py...';
+
+  try {
+    const response = await fetch('http://127.0.0.1:8000/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pgn: pgn })
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      G = {
+        pgn: pgn,
+        moves: parsed.moves,
+        positions: parsed.positions,
+        wEvals: [0].concat(data.evals), // Include starting position 0
+        cls: data.classifications
+      };
+      saveToCache(pgn, G);
+      setProgress(100, '✅ Analysis Complete!');
+      document.getElementById('analyze-btn').disabled = false;
+      renderResults();
+      return;
+    }
+  } catch (e) {
+    console.log("Server not available, falling back to browser analysis...");
+  }
+
+  // ── Fallback to Browser Analysis ─────────────
+  setStep('engine','active');
+  document.getElementById('load-detail').textContent = 'Loading Browser Engine...';
   document.getElementById('st-engine').textContent   = 'Engine readying...';
 
   try {
