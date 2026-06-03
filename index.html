@@ -1185,7 +1185,7 @@ function getCacheKey(pgn) {
     hash = ((hash << 5) - hash) + pgn.charCodeAt(i);
     hash |= 0;
   }
-  return 'crp_cache_v16_' + hash;
+  return 'crp_cache_v17_' + hash;
 }
 
 function loadFromCache(pgn) {
@@ -1432,41 +1432,45 @@ function isSacrificeMove(fenAfter, toSquare, isWhite) {
 }
 
 function classifyMove(prevWCP, currWCP, isWhite, fenPrev, fenCurr, bestMoveUCI, actualMoveUCI) {
-  // Convert to win probability percentage (Chess.com's exact formula)
   const pWin = isWhite ? cpToWinPct(prevWCP) : (100 - cpToWinPct(prevWCP));
   const cWin = isWhite ? cpToWinPct(currWCP) : (100 - cpToWinPct(currWCP));
-  const loss = pWin - cWin; // positive = you lost winning chances
+  const loss = pWin - cWin;
+  const gain = cWin - pWin;
 
   const isBest = (bestMoveUCI === actualMoveUCI);
+  const mP = getMaterialScore(fenPrev);
+  const mC = getMaterialScore(fenCurr);
+  const mLoss = isWhite ? (mP.w - mC.w) : (mP.b - mC.b);
 
   // ── Checkmate ──
   if (Math.abs(currWCP) >= 99000) return isBest ? 'best' : (loss < 0 ? 'best' : 'excellent');
 
   // ── BRILLIANT (!!) ──
-  // Chess.com definition: A strong move (Best or very close) that involves
-  // a real piece sacrifice — the opponent can profitably capture your piece.
-  if (loss <= 2.0 && Math.abs(cWin) > 55) {
+  // A sacrifice is any top-tier move (Excellent/Best) that results in a net material drop
+  // or leaves a piece hanging that could be captured profitably.
+  if (loss <= 4.0 && Math.abs(cWin) > 40) {
     const toSq = actualMoveUCI.slice(2, 4);
-    if (isSacrificeMove(fenCurr, toSq, isWhite)) return 'brilliant';
+    const isTactical = isSacrificeMove(fenCurr, toSq, isWhite) || mLoss >= 0.9;
+    if (isTactical) return 'brilliant';
   }
 
   // ── GREAT (!) ──
-  // Chess.com: Move turns losing/equal position into winning one
-  // Win prob was ≤45% and jumps to ≥60%
-  if (loss < 0) { // position improved
-    if (pWin <= 45 && cWin >= 60) return 'great';
-    return isBest ? 'best' : 'excellent';
-  }
+  // Thresholds:
+  // 1. Win probability jumped by >12% (Game changer)
+  // 2. Position went from losing/equal to clearly winning
+  if (gain >= 12.0 && cWin >= 45) return 'great';
+  if (pWin <= 50 && cWin >= 65) return 'great';
 
-  // ── STANDARD CATEGORIES (Chess.com official thresholds) ──
-  // loss is in win-probability percentage points
-  if (loss === 0 || isBest && loss < 0.5) return 'best';
-  if (loss <= 2)  return 'excellent';
-  if (loss <= 5)  return 'good';
-  if (loss <= 10) return 'inaccuracy';
-  if (loss <= 20) return 'mistake';
+  // ── STANDARD CATEGORIES ──
+  if (isBest && loss < 0.5) return 'best';
+  if (loss <= 2.2)  return 'excellent';
+  if (loss <= 5.5)  return 'good';
+  if (loss <= 11)   return 'inaccuracy';
+  if (loss <= 22)   return 'mistake';
   return 'blunder';
 }
+
+
 
 function calcAccuracy(whiteEvals, isWhite) {
   const losses = [];
