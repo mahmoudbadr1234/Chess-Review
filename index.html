@@ -728,18 +728,39 @@
       flex-shrink:0;
     }
 
-    .stat-chip {
-      display:flex; align-items:center; gap:5px;
-      padding:5px 10px;
-      background:var(--bg);
-      border:1px solid var(--border);
-      border-radius:var(--r-sm);
-      font:600 11px/1 'Inter',sans-serif;
-      white-space:nowrap;
+    #summary-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
     }
 
-    .stat-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
-    .stat-n { font-weight:800; margin-left:2px; }
+    .stat-chip {
+      display:flex; align-items:center; gap:8px;
+      padding:4px 10px;
+      padding-left: 4px;
+      background: rgba(255,255,255,0.03);
+      border:1px solid rgba(255,255,255,0.06);
+      border-radius: 6px;
+      font:600 12px/1 'Inter',sans-serif;
+      white-space:nowrap;
+      transition: background 0.2s;
+    }
+    .stat-chip:hover { background: rgba(255,255,255,0.06); }
+
+    .stat-icon-box {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.3);
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .stat-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+    .stat-n { font-weight:900; margin-left:auto; padding-left: 4px; font-size: 13px; }
 
     .moves-wrap { flex:1; overflow-y:auto; padding:14px 18px; }
 
@@ -769,7 +790,29 @@
     .mb.on    { background:var(--accent-glow); border-color:var(--border-hi); }
 
     .mb-san  { font:600 13px/1 'JetBrains Mono',monospace; flex:1; }
-    .mb-icon { font-size:13px; flex-shrink:0; }
+    .mb-icon {
+      font-size:11px;
+      font-weight: 800;
+      width: 20px;
+      height: 20px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    /* Color specific icons in moves list */
+    .mb-icon[title="Brilliant"]   { color: var(--brilliant);   background: rgba(27,172,166,0.1); }
+    .mb-icon[title="Great"]       { color: var(--great);       background: rgba(91,139,223,0.1); }
+    .mb-icon[title="Best"]        { color: var(--best);        background: rgba(111,183,65,0.1); }
+    .mb-icon[title="Excellent"]   { color: var(--excellent);   background: rgba(111,183,65,0.1); }
+    .mb-icon[title="Good"]        { color: var(--good);        background: rgba(157,184,127,0.1); }
+    .mb-icon[title="Inaccuracy"]  { color: var(--inaccuracy);  background: rgba(246,195,67,0.1); }
+    .mb-icon[title="Mistake"]     { color: var(--mistake);     background: rgba(224,125,20,0.1); }
+    .mb-icon[title="Blunder"]     { color: var(--blunder);     background: rgba(204,50,50,0.1); }
+    .mb-icon[title="Miss"]        { color: var(--miss);        background: rgba(139,79,219,0.1); }
 
     /* Eval chart */
     .chart-panel {
@@ -996,7 +1039,10 @@
     <!-- RIGHT PANEL -->
     <div class="right-panel">
       <!-- Summary stats -->
-      <div class="summary-bar" id="summary-bar"></div>
+      <div class="stats-panel" style="padding:14px 18px; border-bottom:1px solid var(--border);">
+        <div style="font-size:11px; font-weight:800; color:var(--text3); margin-bottom:12px; letter-spacing:0.5px; text-transform:uppercase;">Game Review Summary</div>
+        <div id="summary-bar"></div>
+      </div>
 
       <!-- Eval chart -->
       <div class="chart-panel">
@@ -1610,9 +1656,12 @@ function renderSummary() {
     const chip = document.createElement('div');
     chip.className = 'stat-chip';
     chip.innerHTML = `
+      <div class="stat-icon-box" style="color:${cfg.color}">
+        ${cfg.icon}
+      </div>
       <div class="stat-dot" style="background:${cfg.bg}"></div>
-      <span>${cfg.icon} ${cfg.label}</span>
-      <span class="stat-n" style="color:white; opacity:0.9">${counts[k]}</span>
+      <span style="color:var(--text2)">${cfg.label}</span>
+      <span class="stat-n" style="color:white">${counts[k]}</span>
     `;
     bar.appendChild(chip);
   });
